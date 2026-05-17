@@ -542,9 +542,12 @@ def cmd_fill_publish(args: argparse.Namespace) -> None:
     with open(args.content_file, encoding="utf-8") as f:
         content = f.read().strip()
 
-    image_paths = process_images(args.images) if args.images else []
-    if not image_paths:
-        _output({"success": False, "error": "没有有效的图片"}, exit_code=2)
+    image_paths: list[str] = []
+    if args.images is not None:
+        image_paths = process_images(args.images) or []
+        if not image_paths:
+            _output({"success": False, "error": "没有有效的图片"}, exit_code=2)
+            return
 
     browser, page = _connect(args)
     try:
@@ -594,12 +597,17 @@ def cmd_fill_publish_video(args: argparse.Namespace) -> None:
 
 
 def cmd_click_publish(args: argparse.Namespace) -> None:
-    """点击发布按钮（在用户确认后调用）。"""
-    from xhs.publish import click_publish_button
+    """点击发布按钮（在用户确认后调用）。
+
+    支持标准图文发布和文字配图两种模式：
+    1. 先尝试标准模式（button.bg-red 文本匹配"发布"）
+    2. 若标准模式失败，尝试文字配图模式（xhs-publish-btn._onPublish()）
+    """
+    from xhs.publish_card import click_publish as card_click_publish
 
     browser, page = _connect_existing(args)
     try:
-        click_publish_button(page)
+        card_click_publish(page)
         _output({"success": True, "status": "发布完成"})
     finally:
         browser.close()
@@ -665,6 +673,130 @@ def cmd_next_step(args: argparse.Namespace) -> None:
     try:
         click_next_and_fill_description(page, description)
         _output({"success": True, "status": "已进入发布页，等待确认发布"})
+    finally:
+        browser.close()
+
+
+def cmd_fill_publish_card(args: argparse.Namespace) -> None:
+    """文字配图：填写内容并返回可用模板列表。"""
+    from xhs.publish_card import fill_card_publish_form
+
+    with open(args.title_file, encoding="utf-8") as f:
+        title = f.read().strip()
+    with open(args.content_file, encoding="utf-8") as f:
+        content = f.read().strip()
+
+    browser, page = _connect(args)
+    try:
+        templates = fill_card_publish_form(page, title, content)
+        _output({
+            "success": True,
+            "title": title,
+            "templates": templates.get("templates", []),
+            "categories": templates.get("categories", []),
+            "current_category": templates.get("current_category", ""),
+            "status": "文字配图画已填写，请选择卡片模板",
+        })
+    finally:
+        browser.close()
+
+
+def cmd_select_card_template(args: argparse.Namespace) -> None:
+    """选择卡片模板。"""
+    from xhs.publish_card import select_template
+
+    browser, page = _connect_existing(args)
+    try:
+        ok = select_template(page, args.name)
+        if ok:
+            _output({"success": True, "template": args.name, "status": "卡片模板已选择"})
+        else:
+            _output({"success": False, "error": f"未找到卡片模板: {args.name}"}, exit_code=2)
+    finally:
+        browser.close()
+
+
+def cmd_select_card_category(args: argparse.Namespace) -> None:
+    """切换卡片模板分类（清新/便签/手写）。"""
+    from xhs.publish_card import select_category
+
+    browser, page = _connect_existing(args)
+    try:
+        ok = select_category(page, args.name)
+        if ok:
+            _output({"success": True, "category": args.name, "status": "分类已切换"})
+        else:
+            _output({"success": False, "error": f"未找到分类: {args.name}"}, exit_code=2)
+    finally:
+        browser.close()
+
+
+def cmd_change_card_color(args: argparse.Namespace) -> None:
+    """切换卡片配色。"""
+    from xhs.publish_card import change_template_color, select_color
+
+    browser, page = _connect_existing(args)
+    try:
+        if args.color:
+            ok = select_color(page, args.color)
+            if ok:
+                _output({"success": True, "color": args.color, "status": "配色已切换"})
+            else:
+                _output({"success": False, "error": f"未找到配色: {args.color}"}, exit_code=2)
+        else:
+            colors = change_template_color(page)
+            _output({"success": True, "colors": colors, "status": "换配色已打开"})
+    finally:
+        browser.close()
+
+
+def cmd_confirm_card_preview(args: argparse.Namespace) -> None:
+    """点击下一朰确认卡片选择，进入发布表单。"""
+    from xhs.publish_card import confirm_preview
+
+    browser, page = _connect_existing(args)
+    try:
+        confirm_preview(page)
+        _output({"success": True, "status": "卡片预览已确认，请填写标签和可见性"})
+    finally:
+        browser.close()
+
+
+def cmd_card_publish_setup(args: argparse.Namespace) -> None:
+    """文字配图模式下填写发布表单的标题、标签、可见性等。
+
+    与标准 fill-publish 不同，card mode 的发布表单不包含正文编辑器
+    （内容已包含在生成的卡片图片中），只需要设置标题、标签和可见性。
+    """
+    import time
+
+    from title_utils import calc_title_length
+    from xhs.publish import (
+        _check_title_max_length,
+        _set_visibility,
+    )
+    from xhs.selectors import TITLE_INPUT
+
+    with open(args.title_file, encoding="utf-8") as f:
+        title = f.read().strip()
+
+    browser, page = _connect_existing(args)
+    try:
+        # 标题
+        title_len = calc_title_length(title)
+        if title_len > 20:
+            from xhs.errors import TitleTooLongError
+            raise TitleTooLongError(str(title_len), "20")
+        page.input_text(TITLE_INPUT, title)
+        time.sleep(0.5)
+        _check_title_max_length(page)
+        logger.info("卡发布·标题已填写")
+
+        # 可见范围
+        _set_visibility(page, args.visibility or "")
+        logger.info("卡发布·可见性已设置")
+
+        _output({"success": True, "status": "表单已填写，请确认发布"})
     finally:
         browser.close()
 
@@ -836,7 +968,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("fill-publish", help="填写图文表单（不发布）")
     sub.add_argument("--title-file", required=True)
     sub.add_argument("--content-file", required=True)
-    sub.add_argument("--images", nargs="+", required=True)
+    sub.add_argument("--images", nargs="+")
     sub.add_argument("--tags", nargs="*")
     sub.add_argument("--schedule-at")
     sub.add_argument("--original", action="store_true")
@@ -877,6 +1009,45 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("next-step", help="点击下一步 + 填写描述")
     sub.add_argument("--content-file", required=True)
     sub.set_defaults(func=cmd_next_step)
+
+    # ── 文字配图发布 ──
+    # fill-publish-card
+    sub = subparsers.add_parser("fill-publish-card", help="文字配图：填写内容并返回模板列表")
+    sub.add_argument("--title-file", required=True)
+    sub.add_argument("--content-file", required=True)
+    sub.set_defaults(func=cmd_fill_publish_card)
+
+    # select-card-template
+    sub = subparsers.add_parser("select-card-template", help="选择卡片模板")
+    sub.add_argument("--name", required=True)
+    sub.set_defaults(func=cmd_select_card_template)
+
+    # select-card-category
+    sub = subparsers.add_parser("select-card-category", help="切换卡片模板分类")
+    sub.add_argument("--name", required=True)
+    sub.set_defaults(func=cmd_select_card_category)
+
+    # change-card-color
+    sub = subparsers.add_parser("change-card-color", help="切换卡片配色")
+    sub.add_argument("--color", default="", help="配色名称（留空则打开配色面板）")
+    sub.set_defaults(func=cmd_change_card_color)
+
+    # confirm-card-preview
+    sub = subparsers.add_parser("confirm-card-preview", help="确认卡片预览，进入发布表单")
+    sub.set_defaults(func=cmd_confirm_card_preview)
+
+    # card-publish-setup
+    sub = subparsers.add_parser(
+        "card-publish-setup",
+        help="文字配图：填写发布表单（标题、标签、可见性）",
+    )
+    sub.add_argument("--title-file", required=True)
+    sub.add_argument("--content-file", required=True)
+    sub.add_argument("--tags", nargs="*")
+    sub.add_argument("--schedule-at")
+    sub.add_argument("--original", action="store_true")
+    sub.add_argument("--visibility")
+    sub.set_defaults(func=cmd_card_publish_setup)
 
     return parser
 

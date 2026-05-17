@@ -71,7 +71,14 @@ python scripts/cli.py publish --title-file t.txt --content-file c.txt --images p
 | `publish-video` | publish_with_video | 发布 |
 | `fill-publish` | — | 分步发布（图文填写） |
 | `fill-publish-video` | — | 分步发布（视频填写） |
-| `click-publish` | — | 分步发布（点击发布） |
+| `click-publish` | — | 分步发布/文字配图（点击发布） |
 | `long-article` | — | 长文发布（填写+排版） |
 | `select-template` | — | 长文发布（选择模板） |
 | `next-step` | — | 长文发布（下一步+描述） |
+| `fill-publish-card` | — | 文字配图（填写内容+返回模板列表） |
+| `select-card-template` | — | 文字配图（选择卡片模板） |
+| `select-card-category` | — | 文字配图（切换模板分类） |
+| `change-card-color` | — | 文字配图（切换配色） |
+| `confirm-card-preview` | — | 文字配图（确认预览，进入发布表单） |
+| `card-publish-setup` | — | 文字配图（填写标题、可见性） |
+| `click-publish` | — | 分步发布/文字配图（点击发布） |

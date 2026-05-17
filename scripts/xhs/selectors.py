@@ -74,6 +74,21 @@ TAG_FIRST_ITEM = ".item"
 # 弹窗
 POPOVER = "div.d-popover"
 
+# ========== 文字配图发布 ==========
+CARD_TAB_TEXT = "文字配图"
+CARD_CONTENT_INPUT = "div.ql-editor"
+CARD_CATEGORY_ITEMS = '[class*="tab-card-select-item"]'
+CARD_CATEGORY_SELECTED = (
+    '[class*="tab-card-select-item selected"], '
+    '[class*="tab-card-select-item"][class*="active"]'
+)
+CARD_TEMPLATE_CONTAINER = '[class*="template-list"], [class*="card-select-list"]'
+CARD_TEMPLATE_ITEM = '[class*="card-style-"]'
+CARD_TEMPLATE_SELECTED = '[class*="card-style-"][class*="selected"]'
+CARD_NEXT_BUTTON_TEXT = "下一步"
+CARD_COLOR_CHANGE_BUTTON = '[class*="change-color-btn"], [class*="color-btn"], button'
+CARD_COLOR_OPTION = '[class*="color-circle"]'
+
 # ========== 写长文模式 ==========
 # 注意: 长文模式的按钮（写长文、新的创作、一键排版、下一步）通过文本匹配定位
 LONG_ARTICLE_TAB_TEXT = "写长文"

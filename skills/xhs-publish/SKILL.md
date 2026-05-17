@@ -1,8 +1,8 @@
 ---
 name: xhs-publish
 description: |
-  小红书内容发布技能。支持图文发布、视频发布、长文发布、定时发布、标签、可见性设置。
-  当用户要求发布内容到小红书、上传图文、上传视频、发长文时触发。
+  小红书内容发布技能。支持图文发布、视频发布、长文发布、文字配图（卡片模板）、定时发布、标签、可见性设置。
+  当用户要求发布内容到小红书、上传图文、上传视频、发长文、文字配图时触发。
 version: 1.0.0
 metadata:
   openclaw:
@@ -41,6 +41,11 @@ metadata:
 | `long-article` | 填写长文内容并触发排版 |
 | `select-template` | 选择长文排版模板 |
 | `next-step` | 进入长文发布页并填写描述 |
+| `fill-publish-card` | 文字配图：填写内容并返回模板列表 |
+| `select-card-template` | 文字配图：选择卡片模板 |
+| `select-card-category` | 文字配图：切换模板分类（清新/便签/手写） |
+| `change-card-color` | 文字配图：切换配色（带参指定，无参打开配色面板） |
+| `confirm-card-preview` | 文字配图：确认预览，进入发布表单 |
 
 ---
 
@@ -49,17 +54,19 @@ metadata:
 按优先级判断：
 
 1. 用户说"发长文 / 写长文 / 长文模式"：进入 **长文发布流程（流程 B）**。
-2. 用户已提供 `标题 + 正文 + 视频（本地路径）`：进入 **视频发布流程（流程 A.2）**。
-3. 用户已提供 `标题 + 正文 + 图片（本地路径或 URL）`：进入 **图文发布流程（流程 A.1）**。
-4. 用户只提供网页 URL：先用 WebFetch 提取内容和图片，再给出可发布草稿等待确认。
-5. 信息不全：先补齐缺失信息，不要直接发布。
+2. 用户说"文字配图 / 卡片模式 / 卡片模板 / 配图模式"：进入 **文字配图发布流程（流程 C）**。
+3. 用户已提供 `标题 + 正文 + 视频（本地路径）`：进入 **视频发布流程（流程 A.2）**。
+4. 用户已提供 `标题 + 正文 + 图片（本地路径或 URL）`：进入 **图文发布流程（流程 A.1）**。
+5. 用户已提供 `标题 + 正文` 但没有图片/视频：**询问用户是否要用文字配图模式（卡片模板）发布，还是先补充图片。**
+6. 用户只提供网页 URL：先用 WebFetch 提取内容和图片，再给出可发布草稿等待确认。
+7. 信息不全：先补齐缺失信息，不要直接发布。
 
 ## 必做约束
 
 - **控制发布频率**：建议每次发布间隔不少于数分钟，避免短时间内批量发布触发风控。
 - **发布前必须让用户确认最终标题、正文和图片/视频**。
 - **推荐使用分步发布**：先 fill → 用户确认 → 再 click-publish。
-- 图文发布时，没有图片不得发布。
+- 图文发布时，没有图片不得发布。如需发纯文字笔记，应使用 **文字配图模式** 替代。
 - 视频发布时，没有视频不得发布。图片和视频不可混合（二选一）。
 - 标题长度不超过 20（UTF-16 字节数向上取整除以 2：汉字/全角符号计 1，英文/数字/半角符号每 **2 个**计 1）。例："hello"= 3，"你好hello" = 4，勿用"每个字符计 1"估算。
 - 如果使用文件路径，必须使用绝对路径，禁止相对路径。
@@ -267,6 +274,96 @@ python scripts/cli.py next-step \
 python scripts/cli.py click-publish
 ```
 
+## 流程 C: 文字配图发布
+
+当用户有标题+正文但没有图片时，可以使用小红书的文字配图功能。
+文字配图会自动将文字渲染到风格化的卡片背景上生成图片，无需上传真实图片。支持三种分类风格（清新/便签/手写）和多种卡片模板，可更换配色。
+
+> **没有图片时应优先推荐文字配图模式**，不要直接要求用户去准备图片。
+
+### Step C.1: 准备内容
+
+收集标题和正文。标题长度遵循 ≤ 20 规则（同流程 A）。
+
+### Step C.2: 用户确认标题和正文
+
+通过 `AskUserQuestion` 确认最终标题和正文内容，**同时告知用户将使用文字配图模式**。
+
+### Step C.3: 写入临时文件并填写文字配图表单
+
+```bash
+python scripts/cli.py fill-publish-card \
+  --title-file /tmp/xhs_title.txt \
+  --content-file /tmp/xhs_content.txt
+```
+
+该命令会：
+1. 导航到发布页
+2. 点击"文字配图" tab
+3. 填写标题和正文
+4. 等待卡片模板列表加载
+5. 返回 JSON 包含 `templates`（模板列表）、`categories`（分类列表）和 `current_category`
+
+### Step C.4: 选择卡片模板分类（可选）
+
+通过 `AskUserQuestion` 展示可用分类（如"清新""便签""手写"），让用户选择是否切换。如用户无特殊要求，默认不切换。
+
+```bash
+python scripts/cli.py select-card-category --name "便签"
+```
+
+切换分类后可用模板列表会更新，**必须重新运行 `fill-publish-card` 或再次执行选中来获取新模板列表**。
+
+### Step C.5: 选择卡片模板
+
+通过 `AskUserQuestion` 展示可用模板列表，让用户选择：
+
+```bash
+python scripts/cli.py select-card-template --name "札记"
+```
+
+### Step C.6: 切换配色（可选）
+
+如果用户对当前配色不满意：
+
+```bash
+# 先打开配色面板
+python scripts/cli.py change-card-color
+
+# 输出会包含可选颜色列表，用户选择后执行：
+python scripts/cli.py change-card-color --color "颜色名"
+```
+
+### Step C.7: 确认预览
+
+```bash
+python scripts/cli.py confirm-card-preview
+```
+
+该命令点击"下一步"按钮，确认卡片选择，**进入正式发布表单**（标题、正文、标签、可见性等）。
+
+### Step C.8: 填写标签和可见性
+
+进入发布表单后，标签和可见性设置与流程 A 相同（使用 `fill-publish` 时不传 --images）。**注意：** 文字配图模式下发布表单已会自动填写标题和正文，你只需要补充标签和可见性。
+
+```bash
+# 补充标签 | 分步操作
+python scripts/cli.py fill-publish \
+  --title-file /tmp/xhs_title.txt \
+  --content-file /tmp/xhs_content.txt \
+  --tags "标签1" "标签2" \
+  --visibility "公开可见"
+```
+
+> **注意**：执行 `fill-publish` 时不要传 `--images`，表单中已经包含文字配图生成的图片。
+
+### Step C.9: 用户确认并发布
+
+```bash
+# 用户在浏览器中确认预览后
+python scripts/cli.py click-publish
+```
+
 ## 处理输出
 
 - **Exit code 0**：成功。输出 JSON 包含 `success`, `title`, `images`/`video`/`templates`, `status`。
@@ -285,6 +382,8 @@ python scripts/cli.py click-publish
 | `--schedule-at ISO8601` | 定时发布时间 |
 | `--original` | 声明原创 |
 | `--visibility` | 可见范围 |
+| `--name` | 模板/分类名称（select-card-template / select-card-category） |
+| `--color` | 配色名称（change-card-color，留空则打开配色面板） |
 
 ## 失败处理
 
@@ -295,3 +394,6 @@ python scripts/cli.py click-publish
 - **页面选择器失效**：提示检查脚本中的选择器定义。
 - **模板加载超时**：长文模式下模板可能加载缓慢，等待 15 秒后超时。
 - **用户取消发布**：必须运行 `save-draft` 保存草稿，再告知用户已保存到草稿箱，不得直接关闭 tab。
+- **文字配图 tab 不存在**：当前 creator 页面可能不支持此功能，告知用户改用图文发布（上传真实图片）。
+- **卡片模板未找到**：用户选择的模板名可能属于其他分类，尝试 `select-card-category` 切换分类后再试。
+- **配色切换无效**：不是所有模板都支持换配色，告知用户使用选中模板的默认配色。
